@@ -1,0 +1,105 @@
+name: release-binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload assets to"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  prepare-release:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure release exists
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release view "${{ steps.release.outputs.tag }}"
+          --repo "${{ github.repository }}"
+          ||
+          gh release create "${{ steps.release.outputs.tag }}"
+          --repo "${{ github.repository }}"
+          --target "${{ github.sha }}"
+          --title "${{ steps.release.outputs.tag }}"
+          --notes "Automated binary release for ${{ steps.release.outputs.tag }}."
+
+  publish:
+    name: Publish ${{ matrix.rid }}
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            asset: luban-win-x64.zip
+          - rid: linux-x64
+            asset: luban-linux-x64.zip
+          - rid: osx-x64
+            asset: luban-osx-x64.zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish
+        run: >
+          dotnet publish ./src/Luban/Luban.csproj
+          --configuration Release
+          --runtime ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+          --output ./artifacts/publish/luban-${{ matrix.rid }}
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $publishDir = Resolve-Path "./artifacts/publish/luban-${{ matrix.rid }}"
+          $assetPath = Join-Path (Resolve-Path "./artifacts/publish") "${{ matrix.asset }}"
+          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $assetPath -Force
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ./artifacts/publish/${{ matrix.asset }}
+          if-no-files-found: error
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload
+          "${{ needs.prepare-release.outputs.tag }}"
+          "./artifacts/publish/${{ matrix.asset }}"
+          --repo "${{ github.repository }}"
+          --clobber
