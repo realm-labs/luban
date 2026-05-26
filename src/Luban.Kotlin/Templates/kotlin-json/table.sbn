@@ -1,0 +1,92 @@
+{{~if __namespace_with_top_module != ''~}}
+package {{__namespace_with_top_module}}
+{{~end~}}
+
+import luban.*
+import kotlinx.serialization.json.*
+
+{{~if __this.comment != '' ~}}
+/**
+ * {{escape_comment __this.comment}}
+ */
+{{~end~}}
+{{~class_annotations = kotlin_annotations __this~}}
+{{~if class_annotations != '' ~}}
+{{class_annotations}}
+{{~end~}}
+{{~asteria_table_annotation = asteria_config_table_annotation __this~}}
+{{~if asteria_table_annotation != '' ~}}
+{{asteria_table_annotation}}
+{{~end~}}
+class {{__name}}(json: JsonElement) {
+{{~if __this.is_map_table
+     key_type = __this.key_ttype
+     value_type_name = declaring_box_type_name __value_type
+~}}
+    private val dataMap: Map<{{declaring_box_type_name key_type}}, {{value_type_name}}>
+    val dataList: List<{{value_type_name}}>
+
+    init {
+        val list = ArrayList<{{value_type_name}}>()
+        val map = LinkedHashMap<{{declaring_box_type_name key_type}}, {{value_type_name}}>()
+        for (element in json.jsonArray) {
+            val row = {{deserialize 'element' __value_type}}
+            list.add(row)
+            map[row.{{format_field_name __code_style __this.index_field.name}}] = row
+        }
+        dataList = list
+        dataMap = map
+    }
+
+    operator fun get(key: {{declaring_type_name key_type}}): {{value_type_name}}? = dataMap[key]
+
+{{~else if __this.is_list_table
+     value_type_name = declaring_box_type_name __value_type
+~}}
+    val dataList: List<{{value_type_name}}>
+{{~if __this.is_union_index~}}
+    private val dataMapUnion: Map<List<Any?>, {{value_type_name}}>
+{{~else if !__this.index_list.empty?~}}
+    {{~for idx in __this.index_list~}}
+    private val dataMap{{pascal_name idx.index_field.name}}: Map<{{declaring_box_type_name idx.type}}, {{value_type_name}}>
+    {{~end~}}
+{{~end~}}
+
+    init {
+        val list = ArrayList<{{value_type_name}}>()
+        for (element in json.jsonArray) {
+            val row = {{deserialize 'element' __value_type}}
+            list.add(row)
+        }
+        dataList = list
+{{~if __this.is_union_index~}}
+        dataMapUnion = list.associateBy { listOf({{~for idx in __this.index_list~}}{{if for.index > 0}}, {{end}}it.{{format_field_name __code_style idx.index_field.name}}{{~end~}}) }
+{{~else if !__this.index_list.empty?~}}
+    {{~for idx in __this.index_list~}}
+        dataMap{{pascal_name idx.index_field.name}} = list.associateBy { it.{{format_field_name __code_style idx.index_field.name}} }
+    {{~end~}}
+{{~end~}}
+    }
+
+    operator fun get(index: Int): {{value_type_name}} = dataList[index]
+{{~if __this.is_union_index~}}
+    fun getByIndex(vararg key: Any?): {{value_type_name}}? = dataMapUnion[key.toList()]
+{{~end~}}
+{{~if !__this.is_union_index && !__this.index_list.empty?~}}
+    {{~for idx in __this.index_list~}}
+    fun getBy{{pascal_name idx.index_field.name}}(key: {{declaring_type_name idx.type}}): {{value_type_name}}? = dataMap{{pascal_name idx.index_field.name}}[key]
+    {{~end~}}
+{{~end~}}
+
+{{~else~}}
+    val data: {{declaring_type_name __value_type}}
+
+    init {
+        val array = json.jsonArray
+        if (array.size != 1) {
+            throw SerializationException("table mode=one, but size != 1")
+        }
+        data = {{deserialize 'array[0]' __value_type}}
+    }
+{{~end~}}
+}

@@ -1,0 +1,69 @@
+{{~if __namespace_with_top_module != ''~}}
+package {{__namespace_with_top_module}}
+{{~end~}}
+
+{{~if __this.is_flags~}}
+import kotlin.jvm.JvmInline
+
+{{~else~}}
+import luban.*
+
+{{~end~}}
+{{~if __this.comment != '' ~}}
+/**
+ * {{escape_comment __this.comment}}
+ */
+{{~end~}}
+{{~class_annotations = kotlin_annotations __this~}}
+{{~if class_annotations != '' ~}}
+{{class_annotations}}
+{{~end~}}
+{{~if __this.is_flags~}}
+@JvmInline
+value class {{__name}}(val value: Int) {
+    fun has(flag: {{__name}}): Boolean = (value and flag.value) == flag.value
+
+    infix fun or(flag: {{__name}}): {{__name}} = {{__name}}(value or flag.value)
+
+    infix fun and(flag: {{__name}}): {{__name}} = {{__name}}(value and flag.value)
+
+    operator fun plus(flag: {{__name}}): {{__name}} = this or flag
+
+    companion object {
+    {{~ for item in __this.items ~}}
+{{~if item.comment_or_alias != '' ~}}
+        /**
+         * {{escape_comment item.comment_or_alias}}
+         */
+{{~end~}}
+        val {{item.name}}: {{__name}} = {{__name}}({{item.int_value}})
+    {{~end~}}
+
+        fun fromValue(value: Int): {{__name}} = {{__name}}(value)
+    }
+}
+{{~else~}}
+enum class {{__name}}(val value: Int) {
+    {{~if __this.items.empty?~}}
+    ;
+    {{~else~}}
+    {{~ for item in __this.items ~}}
+{{~if item.comment_or_alias != '' ~}}
+    /**
+     * {{escape_comment item.comment_or_alias}}
+     */
+{{~end~}}
+    {{item.name}}({{item.int_value}}){{if for.last}};{{else}},{{end}}
+    {{~end~}}
+    {{~end~}}
+
+    companion object {
+        private val valueMap: Map<Int, {{__name}}> = values().associateBy { it.value }
+
+        fun fromValue(value: Int): {{__name}} {
+            return valueMap[value]
+                ?: throw SerializationException("unknown enum value: {{__name}}.$value")
+        }
+    }
+}
+{{~end~}}
