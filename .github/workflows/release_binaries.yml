@@ -56,8 +56,8 @@ jobs:
             asset: luban-win-x64.zip
           - rid: linux-x64
             asset: luban-linux-x64.zip
-          - rid: osx-x64
-            asset: luban-osx-x64.zip
+          - rid: osx-arm64
+            asset: luban-osx-arm64.zip
 
     steps:
       - name: Checkout
