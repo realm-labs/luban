@@ -54,7 +54,7 @@ jobs:
           --notes "Automated binary release for ${{ steps.release.outputs.tag }}."
 
   publish:
-    name: Publish ${{ matrix.package }}
+    name: Publish self-contained ${{ matrix.rid }}
     needs: prepare-release
     runs-on: ubuntu-latest
     strategy:
@@ -64,33 +64,12 @@ jobs:
           - rid: win-x64
             package: luban-win-x64
             asset: luban-win-x64.zip
-            self-contained: true
-            single-file: true
           - rid: linux-x64
             package: luban-linux-x64
             asset: luban-linux-x64.zip
-            self-contained: true
-            single-file: true
           - rid: osx-arm64
             package: luban-osx-arm64
             asset: luban-osx-arm64.zip
-            self-contained: true
-            single-file: true
-          - rid: win-x64
-            package: luban-win-x64-framework-dependent
-            asset: luban-win-x64-framework-dependent.zip
-            self-contained: false
-            single-file: false
-          - rid: linux-x64
-            package: luban-linux-x64-framework-dependent
-            asset: luban-linux-x64-framework-dependent.zip
-            self-contained: false
-            single-file: false
-          - rid: osx-arm64
-            package: luban-osx-arm64-framework-dependent
-            asset: luban-osx-arm64-framework-dependent.zip
-            self-contained: false
-            single-file: false
 
     steps:
       - name: Checkout
@@ -106,8 +85,8 @@ jobs:
           dotnet publish ./src/Luban/Luban.csproj
           --configuration Release
           --runtime ${{ matrix.rid }}
-          --self-contained ${{ matrix.self-contained }}
-          -p:PublishSingleFile=${{ matrix.single-file }}
+          --self-contained true
+          -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:DebugType=None
           -p:DebugSymbols=false
@@ -133,5 +112,56 @@ jobs:
           gh release upload
           "${{ needs.prepare-release.outputs.tag }}"
           "./artifacts/publish/${{ matrix.asset }}"
+          --repo "${{ github.repository }}"
+          --clobber
+
+  publish-framework-dependent:
+    name: Publish framework-dependent
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE: luban-framework-dependent
+      ASSET: luban-framework-dependent.zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish
+        run: >
+          dotnet publish ./src/Luban/Luban.csproj
+          --configuration Release
+          --self-contained false
+          -p:UseAppHost=false
+          -p:PublishSingleFile=false
+          -p:DebugType=None
+          -p:DebugSymbols=false
+          --output ./artifacts/publish/$PACKAGE
+
+      - name: Package
+        shell: bash
+        run: |
+          cd "./artifacts/publish/$PACKAGE"
+          zip -r "../$ASSET" .
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ASSET }}
+          path: ./artifacts/publish/${{ env.ASSET }}
+          if-no-files-found: error
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release upload
+          "${{ needs.prepare-release.outputs.tag }}"
+          "./artifacts/publish/$ASSET"
           --repo "${{ github.repository }}"
           --clobber
