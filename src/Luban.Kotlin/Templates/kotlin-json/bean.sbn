@@ -59,8 +59,7 @@ import kotlinx.serialization.json.*
 {{~end~}}
 {
 {{~if !__this.is_abstract_type~}}
-    override val typeId: Int
-        get() = TYPE_ID
+    override fun getTypeId(): Int = TYPE_ID
 {{~end~}}
 
     companion object {
