@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to upload assets to"
-        required: true
+        description: "Release tag to upload assets to. Leave blank to create v<project-version>-build.<run-number>."
+        required: false
 
 permissions:
   contents: write
@@ -21,16 +21,22 @@ jobs:
     outputs:
       tag: ${{ steps.release.outputs.tag }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Resolve release tag
         id: release
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+          elif [ -n "${{ github.event.client_payload.tag }}" ]; then
             echo "tag=${{ github.event.client_payload.tag }}" >> "$GITHUB_OUTPUT"
-          else
+          elif [ -n "${{ inputs.tag }}" ]; then
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' ./src/Luban/Luban.csproj | head -n 1)"
+            echo "tag=v${version}-build.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Ensure release exists
@@ -48,7 +54,7 @@ jobs:
           --notes "Automated binary release for ${{ steps.release.outputs.tag }}."
 
   publish:
-    name: Publish ${{ matrix.rid }}
+    name: Publish ${{ matrix.package }}
     needs: prepare-release
     runs-on: ubuntu-latest
     strategy:
@@ -56,11 +62,35 @@ jobs:
       matrix:
         include:
           - rid: win-x64
+            package: luban-win-x64
             asset: luban-win-x64.zip
+            self-contained: true
+            single-file: true
           - rid: linux-x64
+            package: luban-linux-x64
             asset: luban-linux-x64.zip
+            self-contained: true
+            single-file: true
           - rid: osx-arm64
+            package: luban-osx-arm64
             asset: luban-osx-arm64.zip
+            self-contained: true
+            single-file: true
+          - rid: win-x64
+            package: luban-win-x64-framework-dependent
+            asset: luban-win-x64-framework-dependent.zip
+            self-contained: false
+            single-file: false
+          - rid: linux-x64
+            package: luban-linux-x64-framework-dependent
+            asset: luban-linux-x64-framework-dependent.zip
+            self-contained: false
+            single-file: false
+          - rid: osx-arm64
+            package: luban-osx-arm64-framework-dependent
+            asset: luban-osx-arm64-framework-dependent.zip
+            self-contained: false
+            single-file: false
 
     steps:
       - name: Checkout
@@ -76,19 +106,18 @@ jobs:
           dotnet publish ./src/Luban/Luban.csproj
           --configuration Release
           --runtime ${{ matrix.rid }}
-          --self-contained true
-          -p:PublishSingleFile=true
+          --self-contained ${{ matrix.self-contained }}
+          -p:PublishSingleFile=${{ matrix.single-file }}
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:DebugType=None
           -p:DebugSymbols=false
-          --output ./artifacts/publish/luban-${{ matrix.rid }}
+          --output ./artifacts/publish/${{ matrix.package }}
 
       - name: Package
-        shell: pwsh
+        shell: bash
         run: |
-          $publishDir = Resolve-Path "./artifacts/publish/luban-${{ matrix.rid }}"
-          $assetPath = Join-Path (Resolve-Path "./artifacts/publish") "${{ matrix.asset }}"
-          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $assetPath -Force
+          cd "./artifacts/publish/${{ matrix.package }}"
+          zip -r "../${{ matrix.asset }}" .
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
